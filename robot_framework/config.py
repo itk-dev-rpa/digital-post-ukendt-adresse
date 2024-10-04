@@ -15,10 +15,9 @@ SCREENSHOT_SENDER = "robot@friend.dk"
 ERROR_EMAIL = "Error Email"
 
 # Process specific values
-ROBOT_NAME = "Udtræk af Tilmelding til Digital Post Ukendt Adresse"
+QUEUE_NAME = "Udtræk af Tilmelding til Digital Post Ukendt Adresse"
 GRAPH_API = "Graph API"
 EMAIL_STATUS_SENDER = "itk-rpa@mkb.aarhus.dk"
 EMAIL_ATTACHMENT = "Ændringer på Tilmelding af Digital Post.xlsx"
 
 DATABASE = "Driver={ODBC Driver 17 for SQL Server};Server=FaellesSQL;Trusted_Connection=yes;"
-QUERY = "SELECT TOP 10 * FROM [DWH].[Mart].[AdresseAktuel] WHERE Vejkode = 9901 AND Myndighed = 751"

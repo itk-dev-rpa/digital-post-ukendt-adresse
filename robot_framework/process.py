@@ -21,27 +21,27 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
     """ Do the primary process of the robot."""
     orchestrator_connection.log_trace("Running process.")
     process_arguments = json.loads(orchestrator_connection.process_arguments)
-    service_cvr, certificate_path, data_recipient = (process_arguments[arg] for arg in process_arguments)
 
     # Prepare access to service platform
-    kombit_access = KombitAccess(service_cvr, certificate_path, True)
+    kombit_access = KombitAccess(process_arguments["service_cvr"], process_arguments["certificate_path"], True)
 
     # Receive queue item list of people who weren't registered last time
-    queue_elements = orchestrator_connection.get_queue_elements(config.ROBOT_NAME)
+    queue_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME)
 
     # Find current list of people with unknown address and get their registration status for Digital Post
-    current_status = get_registration_status_from_query(kombit_access, config.DATABASE, config.QUERY)
+    query = "SELECT * FROM [DWH].[Mart].[AdresseAktuel] WHERE Vejkode = 9901 AND Myndighed = 751"
+    current_status = get_registration_status_from_query(kombit_access, config.DATABASE, query)
     changes = []
 
     # Check status of people who are registered against people who weren't registered before
     for row in queue_elements:
-        data = json.loads(row.data.replace("True", "true").replace("False", "false"))
+        data = json.loads(row.data)
         current_value = current_status.get(row.reference, None)
         if current_value:
             # If a change has occured since last run, update queue element and prepare to send line to case worker
             if current_value["digital_post"] != data["digital_post"] or current_value["nemsms"] != data["nemsms"]:
                 orchestrator_connection.delete_queue_element(row.id)
-                orchestrator_connection.create_queue_element(config.ROBOT_NAME, reference=row.reference, data=f'{{"digital_post":{current_value["digital_post"]}, "nemsms":{current_value["nemsms"]}}}')
+                orchestrator_connection.create_queue_element(config.QUEUE_NAME, reference=row.reference, data=json.dumps({"digital_post": current_value["digital_post"], "nemsms": current_value["nemsms"]}))
                 changes.append([current_value["cpr"], current_value["digital_post"], current_value["nemsms"]])
             current_status.pop(row.reference)
         else:
@@ -50,11 +50,11 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
     # Send an email with list of people whose status has changed
     if len(changes) > 0:
         return_sheet = write_data_to_output_excel(changes)
-        _send_status_email(data_recipient, return_sheet)
+        _send_status_email(process_arguments["data_recipient"], return_sheet)
 
     # Add queue elements for elements that didn't exists before
     for key, current_value in current_status.items():
-        orchestrator_connection.create_queue_element(config.ROBOT_NAME, reference=key, data=f'{{"digital_post":{current_value["digital_post"]}, "nemsms":{current_value["nemsms"]}}}')
+        orchestrator_connection.create_queue_element(config.QUEUE_NAME, reference=key, data=json.dumps({"digital_post": current_value["digital_post"], "nemsms": current_value["nemsms"]}))
 
 
 def write_data_to_output_excel(data: List[Tuple[str, bool, bool]]) -> BytesIO:
@@ -78,14 +78,14 @@ def write_data_to_output_excel(data: List[Tuple[str, bool, bool]]) -> BytesIO:
     return excel_buffer
 
 
-def encrypt_data(data, salt) -> str:
+def encrypt_data(cpr, first_name) -> str:
     """Take CPR and first name from citizen and encrypt using the name as salt.
 
     Args:
         cpr: CPR of the citizen.
         first_name: First name of the citizen.
     """
-    salted_data = f"{data}{salt}"
+    salted_data = f"{cpr}{first_name}"
     hash_obj = hashlib.sha256(salted_data.encode())
     return hash_obj.hexdigest()
 
@@ -122,10 +122,9 @@ def get_registration_status_from_query(kombit_access: KombitAccess, sql_connecti
     connection = pyodbc.connect(sql_connection)
     cursor = connection.cursor()
     cursor.execute(query)
-    rows = cursor.fetchall()
 
     status_list = {}
-    for row in rows:
+    for row in cursor:
         post = digital_post.is_registered(cpr=row.CPR, service="digitalpost", kombit_access=kombit_access)
         nemsms = digital_post.is_registered(cpr=row.CPR, service="nemsms", kombit_access=kombit_access)
         encrypted_id = encrypt_data(row.CPR, row.Fornavn)
