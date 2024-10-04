@@ -136,7 +136,7 @@ if __name__ == '__main__':
     conn_string = os.getenv("OpenOrchestratorConnString")
     crypto_key = os.getenv("OpenOrchestratorKey")
     mail = input("Please enter your email to receive a test response:\n")
-    cert_path = r"c:\\tmp\\serviceplatformen_test.pem"
-    PROCESS_VARIABLES = f'{{"service_cvr": "55133018", "certificate_path": "{cert_path}", "data_recipient": "{mail}"}}'
+    CERT_PATH = r"c:\\tmp\\serviceplatformen_test.pem"
+    PROCESS_VARIABLES = f'{{"service_cvr": "55133018", "certificate_path": "{CERT_PATH}", "data_recipient": "{mail}"}}'
     oc = OrchestratorConnection("Udtræk Tilmelding Digital Post", conn_string, crypto_key, PROCESS_VARIABLES)
     process(oc)
