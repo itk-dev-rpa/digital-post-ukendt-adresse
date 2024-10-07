@@ -78,7 +78,7 @@ def write_data_to_output_excel(data: List[Tuple[str, bool, bool]]) -> BytesIO:
     return excel_buffer
 
 
-def encrypt_data(cpr, first_name) -> str:
+def encrypt_data(cpr: str, first_name: str) -> str:
     """Take CPR and first name from citizen and encrypt using the name as salt.
 
     Args:
@@ -113,6 +113,8 @@ def get_registration_status_from_query(kombit_access: KombitAccess, sql_connecti
 
     Args:
         kombit_access: Access token for Kombit
+        sql_connection: Connection string for database
+        query: SQL query to lookup list of people
 
     Returns:
         A dictionary of encrypted CPRs containing a dictionary with:
