@@ -29,8 +29,7 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
     queue_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME)
 
     # Find current list of people with unknown address and get their registration status for Digital Post
-    query = "SELECT * FROM [DWH].[Mart].[AdresseAktuel] WHERE Vejkode = 9901 AND Myndighed = 751"
-    current_status = get_registration_status_from_query(kombit_access, config.DATABASE, query)
+    current_status = get_registration_status_from_query(kombit_access, config.DATABASE)
     changes = []
 
     # Check status of people who are registered against people who weren't registered before
@@ -108,19 +107,19 @@ def _send_status_email(recipient: str, file: BytesIO):
     )
 
 
-def get_registration_status_from_query(kombit_access: KombitAccess, sql_connection: str, query: str) -> dict[str, dict[str, bool]]:
+def get_registration_status_from_query(kombit_access: KombitAccess, sql_connection: str) -> dict[str, dict[str, bool]]:
     """Make an SQL request against a database and lookup their registration status.
 
     Args:
         kombit_access: Access token for Kombit
         sql_connection: Connection string for database
-        query: SQL query to lookup list of people
 
     Returns:
         A dictionary of encrypted CPRs containing a dictionary with:
             - Status for registration on Digital Post and NemSMS
             - An unencrypted CPR to add to response email if changes are found
     """
+    query = "SELECT * FROM [DWH].[Mart].[AdresseAktuel] WHERE Vejkode = 9901 AND Myndighed = 751"
     connection = pyodbc.connect(sql_connection)
     cursor = connection.cursor()
     cursor.execute(query)
