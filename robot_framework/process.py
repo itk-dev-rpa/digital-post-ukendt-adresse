@@ -5,9 +5,11 @@ import json
 from io import BytesIO
 from typing import List, Tuple
 import hashlib
+from requests.exceptions import HTTPError
 
 from openpyxl import Workbook
 import pyodbc
+from hvac import Client
 
 from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection
 from itk_dev_shared_components.smtp import smtp_util
@@ -22,11 +24,27 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
     orchestrator_connection.log_trace("Running process.")
     process_arguments = json.loads(orchestrator_connection.process_arguments)
 
+    # Access Keyvault
+    vault_auth = orchestrator_connection.get_credential(config.KEYVAULT_CREDENTIALS)
+    vault_uri = orchestrator_connection.get_constant(config.KEYVAULT_URI).value
+    vault_client = Client(vault_uri)
+    token = vault_client.auth.approle.login(role_id=vault_auth.username, secret_id=vault_auth.password)
+    vault_client.token = token['auth']['client_token']
+
+    # Get certificate
+    read_response = vault_client.secrets.kv.v2.read_secret_version(mount_point='rpa', path=config.KEYVAULT_PATH, raise_on_deleted_version=True)
+    certificate = read_response['data']['data']['cert']
+
+    # Because KombitAccess requires a file, we save and delete the certificate after we use it
+    certificate_path = "certificate.pem"
+    with open(certificate_path, 'w', encoding='utf-8') as cert_file:
+        cert_file.write(certificate)
+
     # Prepare access to service platform
-    kombit_access = KombitAccess(process_arguments["service_cvr"], process_arguments["certificate_path"], True)
+    kombit_access = KombitAccess(process_arguments["service_cvr"], certificate_path, False)
 
     # Receive queue item list of people who weren't registered last time
-    queue_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME)
+    queue_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME, limit=99999999)
 
     # Find current list of people with unknown address and get their registration status for Digital Post
     current_status = get_registration_status_from_query(kombit_access, config.DATABASE)
@@ -40,8 +58,13 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
             # If a change has occured since last run, update queue element and prepare to send line to case worker
             if current_value["digital_post"] != data["digital_post"] or current_value["nemsms"] != data["nemsms"]:
                 orchestrator_connection.delete_queue_element(row.id)
-                orchestrator_connection.create_queue_element(config.QUEUE_NAME, reference=row.reference, data=json.dumps({"digital_post": current_value["digital_post"], "nemsms": current_value["nemsms"]}))
-                changes.append([current_value["cpr"], current_value["digital_post"], current_value["nemsms"]])
+                orchestrator_connection.create_queue_element(config.QUEUE_NAME,
+                                                             reference=row.reference,
+                                                             data=json.dumps({"digital_post": current_value["digital_post"],
+                                                                              "nemsms": current_value["nemsms"]}))
+                changes.append([current_value["cpr"],
+                                status_from_bool(current_value["digital_post"], data["digital_post"]),
+                                status_from_bool(current_value["nemsms"], data["nemsms"])])
             current_status.pop(row.reference)
         else:
             orchestrator_connection.delete_queue_element(row.id)
@@ -53,7 +76,25 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
 
     # Add queue elements for elements that didn't exists before
     for key, current_value in current_status.items():
-        orchestrator_connection.create_queue_element(config.QUEUE_NAME, reference=key, data=json.dumps({"digital_post": current_value["digital_post"], "nemsms": current_value["nemsms"]}))
+        orchestrator_connection.create_queue_element(config.QUEUE_NAME,
+                                                     reference=key,
+                                                     data=json.dumps({"digital_post": current_value["digital_post"],
+                                                                      "nemsms": current_value["nemsms"]}))
+
+
+def status_from_bool(current_status: bool, previous_status: bool) -> str:
+    """Return a text describing status of registration and whether it has changed
+
+    Args:
+        current_status: Current status of registration
+        previous_status: Previous status of registration
+    Return:
+        A text describing registration status as either Tilmeldt (registered) or Ikke Tilmeldt (not registered)"""
+
+    status = "Tilmeldt" if current_status else "Ikke Tilmeldt"
+    if previous_status != current_status:
+        status += " (ændret)"
+    return status
 
 
 def write_data_to_output_excel(data: List[Tuple[str, bool, bool]]) -> BytesIO:
@@ -99,7 +140,7 @@ def _send_status_email(recipient: str, file: BytesIO):
         recipient,
         config.EMAIL_STATUS_SENDER,
         "RPA: Udtræk om Tilmelding til Digital Post",
-        "Robotten har nu udtrukket information om tilmelding til digital post i den forespurgte liste.\n\nVedhæftet denne mail finder du et excel-ark, som indeholder CPR-numre på navngivne borgere med ændringer i deres tilmeldingsstatus for digital post og/eller NemSMS. Arket viser, hvilke services borgeren er tilmeldt.\n\n Mvh. ITK RPA",
+        "Robotten har nu udtrukket information om tilmelding til digital post i den forespurgte liste.\n\nVedhæftet denne mail finder du et excel-ark, som indeholder CPR-numre på borgere med ændringer i deres tilmeldingsstatus for digital post og/eller NemSMS. Arket viser, hvilke services borgeren er tilmeldt.\n\n Mvh. ITK RPA",
         config.SMTP_SERVER,
         config.SMTP_PORT,
         False,
@@ -126,10 +167,13 @@ def get_registration_status_from_query(kombit_access: KombitAccess, sql_connecti
 
     status_list = {}
     for row in cursor:
-        post = digital_post.is_registered(cpr=row.CPR, service="digitalpost", kombit_access=kombit_access)
-        nemsms = digital_post.is_registered(cpr=row.CPR, service="nemsms", kombit_access=kombit_access)
-        encrypted_id = encrypt_data(row.CPR, row.Fornavn)
-        status_list[encrypted_id] = {"digital_post": post, "nemsms": nemsms, "cpr": row.CPR}
+        try:
+            post = digital_post.is_registered(cpr=row.CPR, service="digitalpost", kombit_access=kombit_access)
+            nemsms = digital_post.is_registered(cpr=row.CPR, service="nemsms", kombit_access=kombit_access)
+            encrypted_id = encrypt_data(row.CPR, row.Fornavn)
+            status_list[encrypted_id] = {"digital_post": post, "nemsms": nemsms, "cpr": row.CPR}
+        except HTTPError as e:
+            print(f"An error occured: {e}")
     return status_list
 
 
@@ -137,7 +181,6 @@ if __name__ == '__main__':
     conn_string = os.getenv("OpenOrchestratorConnString")
     crypto_key = os.getenv("OpenOrchestratorKey")
     mail = input("Please enter your email to receive a test response:\n")
-    CERT_PATH = r"c:\\tmp\\serviceplatformen_test.pem"
-    PROCESS_VARIABLES = f'{{"service_cvr": "55133018", "certificate_path": "{CERT_PATH}", "data_recipient": "{mail}"}}'
+    PROCESS_VARIABLES = f'{{"service_cvr": "55133018", "data_recipient": "{mail}"}}'
     oc = OrchestratorConnection("Udtræk Tilmelding Digital Post", conn_string, crypto_key, PROCESS_VARIABLES)
     process(oc)
