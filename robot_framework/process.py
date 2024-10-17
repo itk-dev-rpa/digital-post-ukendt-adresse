@@ -72,7 +72,7 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
     # Send an email with list of people whose status has changed
     if len(changes) > 0:
         return_sheet = write_data_to_output_excel(changes)
-        _send_status_email(process_arguments["data_recipient"], return_sheet)
+        _send_status_email(process_arguments["data_recipient"].split(";"), return_sheet)
 
     # Add queue elements for elements that didn't exists before
     for key, current_value in current_status.items():
