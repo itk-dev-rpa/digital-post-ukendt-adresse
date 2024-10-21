@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- New entries from Serviceportalen will now be added to output if they are registered for Digital Post or NemSMS
+- New entries from Datawarehouse will now be added to output if they are registered for Digital Post or NemSMS
 
 ## [1.1.0]
 
