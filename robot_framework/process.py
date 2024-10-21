@@ -47,7 +47,7 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
     queue_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME, limit=99999999)
 
     # Find current list of people with unknown address and get their registration status for Digital Post
-    current_status = get_registration_status_from_query(kombit_access, config.DATABASE)
+    current_status = get_registration_status_from_query(kombit_access, orchestrator_connection, config.DATABASE)
     changes = []
 
     # Check status of people who are registered against people who weren't registered before
@@ -148,7 +148,7 @@ def _send_status_email(recipient: str, file: BytesIO):
     )
 
 
-def get_registration_status_from_query(kombit_access: KombitAccess, sql_connection: str) -> dict[str, dict[str, bool]]:
+def get_registration_status_from_query(kombit_access: KombitAccess, orchestrator_connection: OrchestratorConnection, sql_connection: str) -> dict[str, dict[str, bool]]:
     """Make an SQL request against a database and lookup their registration status.
 
     Args:
@@ -173,7 +173,7 @@ def get_registration_status_from_query(kombit_access: KombitAccess, sql_connecti
             encrypted_id = encrypt_data(row.CPR, row.Fornavn)
             status_list[encrypted_id] = {"digital_post": post, "nemsms": nemsms, "cpr": row.CPR}
         except HTTPError as e:
-            print(f"An error occured: {e}")
+            orchestrator_connection.log_error(f"An error occured: {e.response.text}")
     return status_list
 
 
