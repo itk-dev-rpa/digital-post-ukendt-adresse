@@ -69,17 +69,23 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
         else:
             orchestrator_connection.delete_queue_element(row.id)
 
-    # Send an email with list of people whose status has changed
-    if len(changes) > 0:
-        return_sheet = write_data_to_output_excel(changes)
-        _send_status_email(process_arguments["data_recipient"].split(";"), return_sheet)
-
     # Add queue elements for elements that didn't exists before
     for key, current_value in current_status.items():
         orchestrator_connection.create_queue_element(config.QUEUE_NAME,
                                                      reference=key,
                                                      data=json.dumps({"digital_post": current_value["digital_post"],
                                                                       "nemsms": current_value["nemsms"]}))
+        digital_post_status = current_value["digital_post"]
+        nem_sms_status = current_value["nemsms"]
+        if digital_post_status or nem_sms_status:
+            changes.append([current_value["cpr"] + " (ny)",
+                           status_from_bool(digital_post_status, digital_post_status),
+                           status_from_bool(nem_sms_status, nem_sms_status)])
+
+    # Send an email with list of people whose status has changed
+    if len(changes) > 0:
+        return_sheet = write_data_to_output_excel(changes)
+        _send_status_email(process_arguments["data_recipient"].split(";"), return_sheet)
 
 
 def status_from_bool(current_status: bool, previous_status: bool) -> str:
