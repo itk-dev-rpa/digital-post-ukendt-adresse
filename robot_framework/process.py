@@ -52,19 +52,28 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
 
     # Check status of people who are registered against people who weren't registered before
     for row in queue_elements:
+        if not row.data:
+            continue
         data = json.loads(row.data)
         current_value = current_status.get(row.reference, None)
         if current_value:
-            # If a change has occured since last run, update queue element and prepare to send line to case worker
+            # If person is still in the database of unknown addresses, update the queue element.
+            orchestrator_connection.delete_queue_element(row.id)
+            orchestrator_connection.create_queue_element(
+                config.QUEUE_NAME,
+                reference=row.reference,
+                data=json.dumps(
+                    {"digital_post": current_value["digital_post"],
+                     "nemsms": current_value["nemsms"]}
+                )
+            )
+            # If status has changed since last run, add data to return excel.
             if current_value["digital_post"] != data["digital_post"] or current_value["nemsms"] != data["nemsms"]:
-                orchestrator_connection.delete_queue_element(row.id)
-                orchestrator_connection.create_queue_element(config.QUEUE_NAME,
-                                                             reference=row.reference,
-                                                             data=json.dumps({"digital_post": current_value["digital_post"],
-                                                                              "nemsms": current_value["nemsms"]}))
-                changes.append([current_value["cpr"],
-                                status_from_bool(current_value["digital_post"], data["digital_post"]),
-                                status_from_bool(current_value["nemsms"], data["nemsms"])])
+                changes.append(
+                    [current_value["cpr"],
+                     status_from_bool(current_value["digital_post"], data["digital_post"]),
+                     status_from_bool(current_value["nemsms"], data["nemsms"])]
+                )
             current_status.pop(row.reference)
         else:
             orchestrator_connection.delete_queue_element(row.id)
