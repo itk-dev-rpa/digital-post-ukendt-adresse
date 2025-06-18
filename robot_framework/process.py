@@ -37,12 +37,12 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
     certificate = read_response['data']['data']['cert']
 
     # Because KombitAccess requires a file, we save and delete the certificate after we use it
-    certificate_path = "C:\\tmp\\Certificate.pem"  # TODO: Don't
+    certificate_path = "certificate.pem"
     with open(certificate_path, 'w', encoding='utf-8') as cert_file:
         cert_file.write(certificate)
 
     # Prepare access to service platform
-    kombit_access = KombitAccess(config.CVR, certificate_path, True)
+    kombit_access = KombitAccess(config.CVR, certificate_path)
 
     # Receive queue item list of people who weren't registered last time
     queue_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME, limit=99999999)
@@ -55,54 +55,68 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
     for row in queue_elements:
         if not row.data:
             continue
-        data = json.loads(row.data)
-        current_value = current_status.get(row.reference, None)
-        if current_value:
+        last_registration = json.loads(row.data)
+        current_registration = current_status.get(row.reference, None)
+        if current_registration:
             # If person is still in the database of unknown addresses, update the queue element.
             orchestrator_connection.delete_queue_element(row.id)
             orchestrator_connection.create_queue_element(
                 config.QUEUE_NAME,
                 reference=row.reference,
                 data=json.dumps(
-                    {"digital_post": current_value["digital_post"],
-                     "nemsms": current_value["nemsms"]}
+                    {"digital_post": current_registration["digital_post"],
+                     "nemsms": current_registration["nemsms"]}
                 )
             )
             # If status has changed since last run, add data to return excel.
-            if current_value["digital_post"] != data["digital_post"] or current_value["nemsms"] != data["nemsms"]:
+            if current_registration["digital_post"] != last_registration["digital_post"] or current_registration["nemsms"] != last_registration["nemsms"]:
                 changes.append(
-                    [current_value["cpr"],
-                     status_from_bool(current_value["digital_post"], data["digital_post"]),
-                     status_from_bool(current_value["nemsms"], data["nemsms"])]
+                    [current_registration["cpr"],
+                     status_from_bool(current_registration["digital_post"], last_registration["digital_post"]),
+                     status_from_bool(current_registration["nemsms"], last_registration["nemsms"])]
                 )
+                if current_registration["nemsms"]:
+                    send_sms(kombit_access, current_registration["cpr"])
             current_status.pop(row.reference)
         else:
             orchestrator_connection.delete_queue_element(row.id)
 
     # Add queue elements for elements that didn't exists before
-    for key, current_value in current_status.items():
+    for key, current_registration in current_status.items():
         orchestrator_connection.create_queue_element(config.QUEUE_NAME,
                                                      reference=key,
-                                                     data=json.dumps({"digital_post": current_value["digital_post"],
-                                                                      "nemsms": current_value["nemsms"]}))
-        digital_post_status = current_value["digital_post"]
-        nem_sms_status = current_value["nemsms"]
+                                                     data=json.dumps({"digital_post": current_registration["digital_post"],
+                                                                      "nemsms": current_registration["nemsms"]}))
+        digital_post_status = current_registration["digital_post"]
+        nem_sms_status = current_registration["nemsms"]
         if digital_post_status or nem_sms_status:
-            changes.append([current_value["cpr"] + " (ny)",
+            changes.append([current_registration["cpr"] + " (ny)",
                            status_from_bool(digital_post_status, digital_post_status),
                            status_from_bool(nem_sms_status, nem_sms_status)])
 
-        # If citizen is registered with both SMS and DigitalPost, and one of them is new, send them an SMS
-        if digital_post_status and nem_sms_status:
-            sender = Sender(senderID=config.CVR, idType="CVR", label="Aarhus Kommune")
-            recipient = Recipient(recipientID=current_value["cpr"], idType="CPR")
-            message = create_nemsms(config.SMS_HEADER, config.SMS_TEXT, sender, recipient)
-            digital_post.send_message("NemSMS", message, kombit_access)
+        # If citizen is registered with NemSMS, send them an SMS
+        if nem_sms_status:
+            send_sms(kombit_access, current_registration["cpr"])
 
     # Send an email with list of people whose status has changed
     if len(changes) > 0:
         return_sheet = write_data_to_output_excel(changes)
         _send_status_email(process_arguments["data_recipient"].split(";"), return_sheet)
+
+
+def send_sms(kombit_access: KombitAccess, recipient: str):
+    """Send an SMS to the CPR recipient.
+
+    Args:
+        kombit_access: Access token for Kombit.
+        recipient: CPR of citizen to recieve SMS.
+    """
+    sender = Sender(senderID=config.CVR, idType="CVR", label="Aarhus Kommune")
+    recipient = Recipient(recipientID=recipient, idType="CPR")
+    message = create_nemsms(config.SMS_HEADER, config.SMS_TEXT_DA, sender, recipient)
+    digital_post.send_message("NemSMS", message, kombit_access)
+    message = create_nemsms(config.SMS_HEADER, config.SMS_TEXT_EN, sender, recipient)
+    digital_post.send_message("NemSMS", message, kombit_access)
 
 
 def status_from_bool(current_status: bool, previous_status: bool) -> str:
@@ -183,7 +197,7 @@ def get_registration_status_from_query(kombit_access: KombitAccess, orchestrator
             - Status for registration on Digital Post and NemSMS
             - An unencrypted CPR to add to response email if changes are found
     """
-    query = "SELECT TOP 25 * FROM [DWH].[Mart].[AdresseAktuel] WHERE Vejkode = 9901 AND Myndighed = 751"
+    query = config.REGISTRATION_QUERY
     connection = pyodbc.connect(sql_connection)
     cursor = connection.cursor()
     cursor.execute(query)
