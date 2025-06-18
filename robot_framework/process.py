@@ -191,8 +191,8 @@ def get_registration_status_from_query(kombit_access: KombitAccess, orchestrator
     status_list = {}
     for row in cursor:
         try:
-            post = digital_post.is_registered(cpr=row.CPR, service="digitalpost", kombit_access=kombit_access)
-            nemsms = digital_post.is_registered(cpr=row.CPR, service="nemsms", kombit_access=kombit_access)
+            post = digital_post.is_registered(id_=row.CPR, service="digitalpost", kombit_access=kombit_access)
+            nemsms = digital_post.is_registered(id_=row.CPR, service="nemsms", kombit_access=kombit_access)
             encrypted_id = encrypt_data(row.CPR, row.Fornavn)
             status_list[encrypted_id] = {"digital_post": post, "nemsms": nemsms, "cpr": row.CPR}
         except HTTPError as e:
