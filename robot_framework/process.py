@@ -15,6 +15,7 @@ from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConn
 from itk_dev_shared_components.smtp import smtp_util
 from python_serviceplatformen import digital_post
 from python_serviceplatformen.authentication import KombitAccess
+from python_serviceplatformen.models.message import create_nemsms, Sender, Recipient
 
 from robot_framework import config
 
@@ -36,12 +37,12 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
     certificate = read_response['data']['data']['cert']
 
     # Because KombitAccess requires a file, we save and delete the certificate after we use it
-    certificate_path = "certificate.pem"
+    certificate_path = "C:\\tmp\\Certificate.pem"  # TODO: Don't
     with open(certificate_path, 'w', encoding='utf-8') as cert_file:
         cert_file.write(certificate)
 
     # Prepare access to service platform
-    kombit_access = KombitAccess(process_arguments["service_cvr"], certificate_path, False)
+    kombit_access = KombitAccess(config.CVR, certificate_path, True)
 
     # Receive queue item list of people who weren't registered last time
     queue_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME, limit=99999999)
@@ -90,6 +91,13 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
             changes.append([current_value["cpr"] + " (ny)",
                            status_from_bool(digital_post_status, digital_post_status),
                            status_from_bool(nem_sms_status, nem_sms_status)])
+
+        # If citizen is registered with both SMS and DigitalPost, and one of them is new, send them an SMS
+        if digital_post_status and nem_sms_status:
+            sender = Sender(senderID=config.CVR, idType="CVR", label="Aarhus Kommune")
+            recipient = Recipient(recipientID=current_value["cpr"], idType="CPR")
+            message = create_nemsms(config.SMS_HEADER, config.SMS_TEXT, sender, recipient)
+            digital_post.send_message("NemSMS", message, kombit_access)
 
     # Send an email with list of people whose status has changed
     if len(changes) > 0:
@@ -154,8 +162,8 @@ def _send_status_email(recipient: str, file: BytesIO):
     smtp_util.send_email(
         recipient,
         config.EMAIL_STATUS_SENDER,
-        "RPA: Udtræk om Tilmelding til Digital Post",
-        "Robotten har nu udtrukket information om tilmelding til digital post i den forespurgte liste.\n\nVedhæftet denne mail finder du et excel-ark, som indeholder CPR-numre på borgere med ændringer i deres tilmeldingsstatus for digital post og/eller NemSMS. Arket viser, hvilke services borgeren er tilmeldt.\n\n Mvh. ITK RPA",
+        config.EMAIL_SUBJECT,
+        config.EMAIL_BODY,
         config.SMTP_SERVER,
         config.SMTP_PORT,
         False,
@@ -175,7 +183,7 @@ def get_registration_status_from_query(kombit_access: KombitAccess, orchestrator
             - Status for registration on Digital Post and NemSMS
             - An unencrypted CPR to add to response email if changes are found
     """
-    query = "SELECT * FROM [DWH].[Mart].[AdresseAktuel] WHERE Vejkode = 9901 AND Myndighed = 751"
+    query = "SELECT TOP 25 * FROM [DWH].[Mart].[AdresseAktuel] WHERE Vejkode = 9901 AND Myndighed = 751"
     connection = pyodbc.connect(sql_connection)
     cursor = connection.cursor()
     cursor.execute(query)
