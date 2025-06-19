@@ -5,8 +5,8 @@ import json
 from io import BytesIO
 from typing import List, Tuple
 import hashlib
-from requests.exceptions import HTTPError
 from dataclasses import dataclass
+from requests.exceptions import HTTPError
 
 from openpyxl import Workbook
 import pyodbc
