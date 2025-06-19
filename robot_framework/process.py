@@ -6,6 +6,7 @@ from io import BytesIO
 from typing import List, Tuple
 import hashlib
 from requests.exceptions import HTTPError
+from dataclasses import dataclass
 
 from openpyxl import Workbook
 import pyodbc
@@ -18,6 +19,20 @@ from python_serviceplatformen.authentication import KombitAccess
 from python_serviceplatformen.models.message import create_nemsms, Sender, Recipient
 
 from robot_framework import config
+
+
+@dataclass
+class RegistrationStatus:
+    """Data class representing registration status for Digital Post and NemSMS services.
+
+    Attributes:
+        digital_post: Whether the user is registered for Digital Post service.
+        nemsms: Whether the user is registered for NemSMS service.
+        cpr: The unencrypted CPR number for the user.
+    """
+    digital_post: bool
+    nemsms: bool
+    cpr: str
 
 
 def process(orchestrator_connection: OrchestratorConnection) -> None:
@@ -51,7 +66,7 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
     current_status = get_registration_status_from_query(kombit_access, orchestrator_connection, config.DATABASE)
     changes = []
 
-    # Check status of people who are registered against people who weren't registered before
+    # Check status of people who are registered on last run against people who weren't registered before
     for row in queue_elements:
         if not row.data:
             continue
@@ -64,39 +79,37 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
                 config.QUEUE_NAME,
                 reference=row.reference,
                 data=json.dumps(
-                    {"digital_post": current_registration["digital_post"],
-                     "nemsms": current_registration["nemsms"]}
+                    {"digital_post": current_registration.digital_post,
+                     "nemsms": current_registration.nemsms}
                 )
             )
             # If status has changed since last run, add data to return excel.
-            if current_registration["digital_post"] != last_registration["digital_post"] or current_registration["nemsms"] != last_registration["nemsms"]:
+            if current_registration.digital_post != last_registration["digital_post"] or current_registration.nemsms != last_registration["nemsms"]:
                 changes.append(
-                    [current_registration["cpr"],
-                     status_from_bool(current_registration["digital_post"], last_registration["digital_post"]),
-                     status_from_bool(current_registration["nemsms"], last_registration["nemsms"])]
+                    [current_registration.cpr,
+                     status_from_bool(current_registration.digital_post, last_registration["digital_post"]),
+                     status_from_bool(current_registration.nemsms, last_registration["nemsms"])]
                 )
-                if current_registration["nemsms"]:
-                    send_sms(kombit_access, current_registration["cpr"])
+                if current_registration.nemsms:
+                    send_sms(kombit_access, current_registration.cpr)
             current_status.pop(row.reference)
         else:
             orchestrator_connection.delete_queue_element(row.id)
 
-    # Add queue elements for elements that didn't exists before
+    # Add queue elements for registrations that didn't exists before
     for key, current_registration in current_status.items():
         orchestrator_connection.create_queue_element(config.QUEUE_NAME,
                                                      reference=key,
-                                                     data=json.dumps({"digital_post": current_registration["digital_post"],
-                                                                      "nemsms": current_registration["nemsms"]}))
-        digital_post_status = current_registration["digital_post"]
-        nem_sms_status = current_registration["nemsms"]
-        if digital_post_status or nem_sms_status:
-            changes.append([current_registration["cpr"] + " (ny)",
-                           status_from_bool(digital_post_status, digital_post_status),
-                           status_from_bool(nem_sms_status, nem_sms_status)])
+                                                     data=json.dumps({"digital_post": current_registration.digital_post,
+                                                                      "nemsms": current_registration.nemsms}))
+        if current_registration.digital_post or current_registration.nemsms:
+            changes.append([current_registration.cpr + " (ny)",
+                           status_from_bool(current_registration.digital_post, last_registration["digital_post"]),
+                           status_from_bool(current_registration.nemsms, last_registration["nemsms"])])
 
         # If citizen is registered with NemSMS, send them an SMS
-        if nem_sms_status:
-            send_sms(kombit_access, current_registration["cpr"])
+        if current_registration.nemsms:
+            send_sms(kombit_access, current_registration.cpr)
 
     # Send an email with list of people whose status has changed
     if len(changes) > 0:
@@ -185,33 +198,59 @@ def _send_status_email(recipient: str, file: BytesIO):
     )
 
 
-def get_registration_status_from_query(kombit_access: KombitAccess, orchestrator_connection: OrchestratorConnection, sql_connection: str) -> dict[str, dict[str, bool]]:
-    """Make an SQL request against a database and lookup their registration status.
+def get_registration_status_from_query(
+    kombit_access: KombitAccess, 
+    orchestrator_connection: OrchestratorConnection, 
+    sql_connection: str
+) -> dict[str, RegistrationStatus]:
+    """Execute SQL query against database and lookup registration status for each user.
 
     Args:
-        kombit_access: Access token for Kombit
-        sql_connection: Connection string for database
+        kombit_access: Access token for Kombit API authentication
+        orchestrator_connection: Connection object for error logging
+        sql_connection: Database connection string
 
     Returns:
-        A dictionary of encrypted CPRs containing a dictionary with:
-            - Status for registration on Digital Post and NemSMS
-            - An unencrypted CPR to add to response email if changes are found
+        Dictionary mapping encrypted CPR numbers to RegistrationStatus objects
+
+    Raises:
+        pyodbc.Error: If database connection or query execution fails
     """
     query = config.REGISTRATION_QUERY
     connection = pyodbc.connect(sql_connection)
     cursor = connection.cursor()
     cursor.execute(query)
 
-    status_list = {}
+    status_dict: dict[str, RegistrationStatus] = {}
+
     for row in cursor:
         try:
-            post = digital_post.is_registered(id_=row.CPR, service="digitalpost", kombit_access=kombit_access)
-            nemsms = digital_post.is_registered(id_=row.CPR, service="nemsms", kombit_access=kombit_access)
+            # Fetch registration status from external services
+            post = digital_post.is_registered(
+                id_=row.CPR,
+                service="digitalpost",
+                kombit_access=kombit_access
+            )
+            nemsms = digital_post.is_registered(
+                id_=row.CPR,
+                service="nemsms",
+                kombit_access=kombit_access
+            )
+            
+            # Create RegistrationStatus data object
+            status = RegistrationStatus(
+                digital_post=post,
+                nemsms=nemsms,
+                cpr=row.CPR
+            )
+            
+            # Use encrypted CPR as dictionary key
             encrypted_id = encrypt_data(row.CPR, row.Fornavn)
-            status_list[encrypted_id] = {"digital_post": post, "nemsms": nemsms, "cpr": row.CPR}
+            status_dict[encrypted_id] = status
+            
         except HTTPError as e:
-            orchestrator_connection.log_error(f"An error occured: {e.response.text}")
-    return status_list
+            orchestrator_connection.log_error(f"Failed to fetch registration status for CPR {row.CPR}: {e.response.text}")
+    return status_dict
 
 
 if __name__ == '__main__':
