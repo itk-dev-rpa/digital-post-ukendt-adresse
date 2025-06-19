@@ -199,8 +199,8 @@ def _send_status_email(recipient: str, file: BytesIO):
 
 
 def get_registration_status_from_query(
-    kombit_access: KombitAccess, 
-    orchestrator_connection: OrchestratorConnection, 
+    kombit_access: KombitAccess,
+    orchestrator_connection: OrchestratorConnection,
     sql_connection: str
 ) -> dict[str, RegistrationStatus]:
     """Execute SQL query against database and lookup registration status for each user.
@@ -236,18 +236,18 @@ def get_registration_status_from_query(
                 service="nemsms",
                 kombit_access=kombit_access
             )
-            
+
             # Create RegistrationStatus data object
             status = RegistrationStatus(
                 digital_post=post,
                 nemsms=nemsms,
                 cpr=row.CPR
             )
-            
+
             # Use encrypted CPR as dictionary key
             encrypted_id = encrypt_data(row.CPR, row.Fornavn)
             status_dict[encrypted_id] = status
-            
+
         except HTTPError as e:
             orchestrator_connection.log_error(f"Failed to fetch registration status for CPR {row.CPR}: {e.response.text}")
     return status_dict
