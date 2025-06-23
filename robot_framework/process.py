@@ -16,7 +16,8 @@ from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConn
 from itk_dev_shared_components.smtp import smtp_util
 from python_serviceplatformen import digital_post
 from python_serviceplatformen.authentication import KombitAccess
-from python_serviceplatformen.models.message import create_nemsms, Sender, Recipient
+from python_serviceplatformen.models import message as serviceplatform_message
+from python_serviceplatformen.models.message import Sender, Recipient
 
 from robot_framework import config
 
@@ -126,9 +127,9 @@ def send_sms(kombit_access: KombitAccess, recipient: str):
     """
     sender = Sender(senderID=config.CVR, idType="CVR", label="Aarhus Kommune")
     recipient = Recipient(recipientID=recipient, idType="CPR")
-    message = create_nemsms(config.SMS_HEADER, config.SMS_TEXT_DA, sender, recipient)
+    message = serviceplatform_message.create_nemsms(config.SMS_HEADER, config.SMS_TEXT_DA, sender, recipient)
     digital_post.send_message("NemSMS", message, kombit_access)
-    message = create_nemsms(config.SMS_HEADER, config.SMS_TEXT_EN, sender, recipient)
+    message = serviceplatform_message.create_nemsms(config.SMS_HEADER, config.SMS_TEXT_EN, sender, recipient)
     digital_post.send_message("NemSMS", message, kombit_access)
 
 
@@ -216,7 +217,7 @@ def get_registration_status_from_query(
     Raises:
         pyodbc.Error: If database connection or query execution fails
     """
-    query = config.REGISTRATION_QUERY
+    query = "SELECT TOP 25 * FROM [DWH].[Mart].[AdresseAktuel] WHERE Vejkode = 9901 AND Myndighed = 751"
     connection = pyodbc.connect(sql_connection)
     cursor = connection.cursor()
     cursor.execute(query)

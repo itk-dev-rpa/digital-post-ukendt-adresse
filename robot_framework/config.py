@@ -18,8 +18,6 @@ KEYVAULT_URI = "Keyvault URI"
 KEYVAULT_PATH = "Digital_Post_Ukendt_Adresse"
 
 # Process specific values
-DATABASE = "Driver={ODBC Driver 17 for SQL Server};Server=FaellesSQL;Trusted_Connection=yes;"
-REGISTRATION_QUERY = "SELECT TOP 25 * FROM [DWH].[Mart].[AdresseAktuel] WHERE Vejkode = 9901 AND Myndighed = 751"
 CVR = "55133018"
 QUEUE_NAME = "Udtræk af Tilmelding til Digital Post Ukendt Adresse"
 GRAPH_API = "Graph API"
