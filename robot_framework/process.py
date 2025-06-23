@@ -49,8 +49,7 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
     vault_client.token = token['auth']['client_token']
 
     # Get certificate
-    db_driver = "Driver={ODBC Driver 17 for SQL Server};Server=FaellesSQL;Trusted_Connection=yes;"
-    read_response = vault_client.secrets.kv.v2.read_secret_version(mount_point='rpa', path=db_driver, raise_on_deleted_version=True)
+    read_response = vault_client.secrets.kv.v2.read_secret_version(mount_point='rpa', path=config.KEYVAULT_PATH, raise_on_deleted_version=True)
     certificate = read_response['data']['data']['cert']
 
     # Because KombitAccess requires a file, we save and delete the certificate after we use it
@@ -65,7 +64,8 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
     queue_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME, limit=99999999)
 
     # Find current list of people with unknown address and get their registration status for Digital Post
-    current_status = get_registration_status_from_query(kombit_access, orchestrator_connection, config.DATABASE)
+    db_driver = "Driver={ODBC Driver 17 for SQL Server};Server=FaellesSQL;Trusted_Connection=yes;"
+    current_status = get_registration_status_from_query(kombit_access, orchestrator_connection, db_driver)
     changes = []
 
     # Check status of people who are registered on last run against people who weren't registered before
