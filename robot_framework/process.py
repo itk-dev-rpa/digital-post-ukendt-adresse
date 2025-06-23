@@ -49,7 +49,8 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
     vault_client.token = token['auth']['client_token']
 
     # Get certificate
-    read_response = vault_client.secrets.kv.v2.read_secret_version(mount_point='rpa', path=config.KEYVAULT_PATH, raise_on_deleted_version=True)
+    db_driver = "Driver={ODBC Driver 17 for SQL Server};Server=FaellesSQL;Trusted_Connection=yes;"
+    read_response = vault_client.secrets.kv.v2.read_secret_version(mount_point='rpa', path=db_driver, raise_on_deleted_version=True)
     certificate = read_response['data']['data']['cert']
 
     # Because KombitAccess requires a file, we save and delete the certificate after we use it
