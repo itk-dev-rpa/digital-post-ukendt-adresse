@@ -5,6 +5,7 @@ import json
 from io import BytesIO
 from typing import List, Tuple
 import hashlib
+from dataclasses import dataclass
 from requests.exceptions import HTTPError
 
 from openpyxl import Workbook
@@ -15,8 +16,24 @@ from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConn
 from itk_dev_shared_components.smtp import smtp_util
 from python_serviceplatformen import digital_post
 from python_serviceplatformen.authentication import KombitAccess
+from python_serviceplatformen.models import message as serviceplatform_message
+from python_serviceplatformen.models.message import Sender, Recipient
 
 from robot_framework import config
+
+
+@dataclass
+class RegistrationStatus:
+    """Data class representing registration status for Digital Post and NemSMS services.
+
+    Attributes:
+        digital_post: Whether the user is registered for Digital Post service.
+        nemsms: Whether the user is registered for NemSMS service.
+        cpr: The unencrypted CPR number for the user.
+    """
+    digital_post: bool
+    nemsms: bool
+    cpr: str
 
 
 def process(orchestrator_connection: OrchestratorConnection) -> None:
@@ -41,60 +58,80 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
         cert_file.write(certificate)
 
     # Prepare access to service platform
-    kombit_access = KombitAccess(process_arguments["service_cvr"], certificate_path, False)
+    kombit_access = KombitAccess(config.CVR, certificate_path)
 
     # Receive queue item list of people who weren't registered last time
     queue_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME, limit=99999999)
 
     # Find current list of people with unknown address and get their registration status for Digital Post
-    current_status = get_registration_status_from_query(kombit_access, orchestrator_connection, config.DATABASE)
+    db_driver = "Driver={ODBC Driver 17 for SQL Server};Server=FaellesSQL;Trusted_Connection=yes;"
+    current_status = get_registration_status_from_query(kombit_access, orchestrator_connection, db_driver)
     changes = []
 
-    # Check status of people who are registered against people who weren't registered before
+    # Check status of people who are registered on last run against people who weren't registered before
     for row in queue_elements:
         if not row.data:
             continue
-        data = json.loads(row.data)
-        current_value = current_status.get(row.reference, None)
-        if current_value:
+        last_registration = json.loads(row.data)
+        current_registration = current_status.get(row.reference, None)
+        if current_registration:
             # If person is still in the database of unknown addresses, update the queue element.
             orchestrator_connection.delete_queue_element(row.id)
             orchestrator_connection.create_queue_element(
                 config.QUEUE_NAME,
                 reference=row.reference,
                 data=json.dumps(
-                    {"digital_post": current_value["digital_post"],
-                     "nemsms": current_value["nemsms"]}
+                    {"digital_post": current_registration.digital_post,
+                     "nemsms": current_registration.nemsms}
                 )
             )
             # If status has changed since last run, add data to return excel.
-            if current_value["digital_post"] != data["digital_post"] or current_value["nemsms"] != data["nemsms"]:
+            if current_registration.digital_post != last_registration["digital_post"] or current_registration.nemsms != last_registration["nemsms"]:
                 changes.append(
-                    [current_value["cpr"],
-                     status_from_bool(current_value["digital_post"], data["digital_post"]),
-                     status_from_bool(current_value["nemsms"], data["nemsms"])]
+                    [current_registration.cpr,
+                     status_from_bool(current_registration.digital_post, last_registration["digital_post"]),
+                     status_from_bool(current_registration.nemsms, last_registration["nemsms"])]
                 )
+                if current_registration.nemsms:
+                    send_sms(kombit_access, current_registration.cpr)
             current_status.pop(row.reference)
         else:
             orchestrator_connection.delete_queue_element(row.id)
 
-    # Add queue elements for elements that didn't exists before
-    for key, current_value in current_status.items():
+    # Add queue elements for registrations that didn't exists before
+    for key, current_registration in current_status.items():
         orchestrator_connection.create_queue_element(config.QUEUE_NAME,
                                                      reference=key,
-                                                     data=json.dumps({"digital_post": current_value["digital_post"],
-                                                                      "nemsms": current_value["nemsms"]}))
-        digital_post_status = current_value["digital_post"]
-        nem_sms_status = current_value["nemsms"]
-        if digital_post_status or nem_sms_status:
-            changes.append([current_value["cpr"] + " (ny)",
-                           status_from_bool(digital_post_status, digital_post_status),
-                           status_from_bool(nem_sms_status, nem_sms_status)])
+                                                     data=json.dumps({"digital_post": current_registration.digital_post,
+                                                                      "nemsms": current_registration.nemsms}))
+        if current_registration.digital_post or current_registration.nemsms:
+            changes.append([current_registration.cpr + " (ny)",
+                           status_from_bool(current_registration.digital_post, last_registration["digital_post"]),
+                           status_from_bool(current_registration.nemsms, last_registration["nemsms"])])
+
+        # If citizen is registered with NemSMS, send them an SMS
+        if current_registration.nemsms:
+            send_sms(kombit_access, current_registration.cpr)
 
     # Send an email with list of people whose status has changed
     if len(changes) > 0:
         return_sheet = write_data_to_output_excel(changes)
         _send_status_email(process_arguments["data_recipient"].split(";"), return_sheet)
+
+
+def send_sms(kombit_access: KombitAccess, recipient: str):
+    """Send an SMS to the CPR recipient.
+
+    Args:
+        kombit_access: Access token for Kombit.
+        recipient: CPR of citizen to recieve SMS.
+    """
+    sender = Sender(senderID=config.CVR, idType="CVR", label="Aarhus Kommune")
+    recipient = Recipient(recipientID=recipient, idType="CPR")
+    message = serviceplatform_message.create_nemsms(config.SMS_HEADER, config.SMS_TEXT_DA, sender, recipient)
+    digital_post.send_message("NemSMS", message, kombit_access)
+    message = serviceplatform_message.create_nemsms(config.SMS_HEADER, config.SMS_TEXT_EN, sender, recipient)
+    digital_post.send_message("NemSMS", message, kombit_access)
 
 
 def status_from_bool(current_status: bool, previous_status: bool) -> str:
@@ -154,8 +191,8 @@ def _send_status_email(recipient: str, file: BytesIO):
     smtp_util.send_email(
         recipient,
         config.EMAIL_STATUS_SENDER,
-        "RPA: Udtræk om Tilmelding til Digital Post",
-        "Robotten har nu udtrukket information om tilmelding til digital post i den forespurgte liste.\n\nVedhæftet denne mail finder du et excel-ark, som indeholder CPR-numre på borgere med ændringer i deres tilmeldingsstatus for digital post og/eller NemSMS. Arket viser, hvilke services borgeren er tilmeldt.\n\n Mvh. ITK RPA",
+        config.EMAIL_SUBJECT,
+        config.EMAIL_BODY,
         config.SMTP_SERVER,
         config.SMTP_PORT,
         False,
@@ -163,33 +200,59 @@ def _send_status_email(recipient: str, file: BytesIO):
     )
 
 
-def get_registration_status_from_query(kombit_access: KombitAccess, orchestrator_connection: OrchestratorConnection, sql_connection: str) -> dict[str, dict[str, bool]]:
-    """Make an SQL request against a database and lookup their registration status.
+def get_registration_status_from_query(
+    kombit_access: KombitAccess,
+    orchestrator_connection: OrchestratorConnection,
+    sql_connection: str
+) -> dict[str, RegistrationStatus]:
+    """Execute SQL query against database and lookup registration status for each user.
 
     Args:
-        kombit_access: Access token for Kombit
-        sql_connection: Connection string for database
+        kombit_access: Access token for Kombit API authentication
+        orchestrator_connection: Connection object for error logging
+        sql_connection: Database connection string
 
     Returns:
-        A dictionary of encrypted CPRs containing a dictionary with:
-            - Status for registration on Digital Post and NemSMS
-            - An unencrypted CPR to add to response email if changes are found
+        Dictionary mapping encrypted CPR numbers to RegistrationStatus objects
+
+    Raises:
+        pyodbc.Error: If database connection or query execution fails
     """
-    query = "SELECT * FROM [DWH].[Mart].[AdresseAktuel] WHERE Vejkode = 9901 AND Myndighed = 751"
+    query = "SELECT TOP 25 * FROM [DWH].[Mart].[AdresseAktuel] WHERE Vejkode = 9901 AND Myndighed = 751"
     connection = pyodbc.connect(sql_connection)
     cursor = connection.cursor()
     cursor.execute(query)
 
-    status_list = {}
+    status_dict: dict[str, RegistrationStatus] = {}
+
     for row in cursor:
         try:
-            post = digital_post.is_registered(id_=row.CPR, service="digitalpost", kombit_access=kombit_access)
-            nemsms = digital_post.is_registered(id_=row.CPR, service="nemsms", kombit_access=kombit_access)
+            # Fetch registration status from external services
+            post = digital_post.is_registered(
+                id_=row.CPR,
+                service="digitalpost",
+                kombit_access=kombit_access
+            )
+            nemsms = digital_post.is_registered(
+                id_=row.CPR,
+                service="nemsms",
+                kombit_access=kombit_access
+            )
+
+            # Create RegistrationStatus data object
+            status = RegistrationStatus(
+                digital_post=post,
+                nemsms=nemsms,
+                cpr=row.CPR
+            )
+
+            # Use encrypted CPR as dictionary key
             encrypted_id = encrypt_data(row.CPR, row.Fornavn)
-            status_list[encrypted_id] = {"digital_post": post, "nemsms": nemsms, "cpr": row.CPR}
+            status_dict[encrypted_id] = status
+
         except HTTPError as e:
-            orchestrator_connection.log_error(f"An error occured: {e.response.text}")
-    return status_list
+            orchestrator_connection.log_error(f"Failed to fetch registration status for CPR {row.CPR}: {e.response.text}")
+    return status_dict
 
 
 if __name__ == '__main__':

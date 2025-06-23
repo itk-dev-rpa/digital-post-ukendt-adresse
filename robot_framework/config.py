@@ -18,9 +18,17 @@ KEYVAULT_URI = "Keyvault URI"
 KEYVAULT_PATH = "Digital_Post_Ukendt_Adresse"
 
 # Process specific values
+CVR = "55133018"
 QUEUE_NAME = "Udtræk af Tilmelding til Digital Post Ukendt Adresse"
 GRAPH_API = "Graph API"
 EMAIL_STATUS_SENDER = "itk-rpa@mkb.aarhus.dk"
 EMAIL_ATTACHMENT = "Ændringer på Tilmelding af Digital Post.xlsx"
+EMAIL_SUBJECT = "RPA: Udtræk om Tilmelding til Digital Post (ukendt adresse)"
+EMAIL_BODY = """Robotten har nu udtrukket information om tilmelding til digital post for borgere med ukendt adresse.
 
-DATABASE = "Driver={ODBC Driver 17 for SQL Server};Server=FaellesSQL;Trusted_Connection=yes;"
+Vedhæftet denne mail finder du et excel-ark, som indeholder CPR-numre på borgere med ændringer i deres tilmeldingsstatus for digital post og/eller NemSMS. Arket viser, hvilke services borgeren er tilmeldt.
+
+Mvh. ITK RPA"""
+SMS_HEADER = "Aarhus Kommune"
+SMS_TEXT_DA = "Har du læst vores brev i din digitale postkasse vedrørende din bopælsregistrering? Du kan kontakte os på tlf. 89 40 41 60. Med venlig hilsen Aarhus Kommune."
+SMS_TEXT_EN = "Did you read our letter in your public mailbox (borger.dk) about your residence registration? You can contact us at 89 40 41 60. Best regards Aarhus Kommune."
