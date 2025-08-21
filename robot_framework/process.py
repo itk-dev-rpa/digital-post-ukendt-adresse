@@ -193,7 +193,8 @@ def _send_status_email(recipient: str, file: BytesIO, sms_list: list[str]):
     """
     body = config.EMAIL_BODY
     if len(sms_list) > 0:
-        body = body.replace('{SMS_SENT}', f"I alt: {len(sms_list)}\n{'\n'.join(sms_list)}")
+        cpr_string = '\n'.join(sms_list)
+        body = body.replace('{SMS_SENT}', f"I alt: {len(sms_list)}\n\n{cpr_string}")
     else:
         body = body.replace('{SMS_SENT}', 'Ingen.')
     smtp_util.send_email(
