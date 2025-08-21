@@ -28,6 +28,9 @@ EMAIL_BODY = """Robotten har nu udtrukket information om tilmelding til digital 
 
 Vedhæftet denne mail finder du et excel-ark, som indeholder CPR-numre på borgere med ændringer i deres tilmeldingsstatus for digital post og/eller NemSMS. Arket viser, hvilke services borgeren er tilmeldt.
 
+Følgende borgere har fået tilsendt en SMS:
+{SMS_SENT}
+
 Mvh. ITK RPA"""
 SMS_HEADER = "Aarhus Kommune"
 SMS_TEXT_DA = "Har du læst vores brev i din digitale postkasse vedrørende din bopælsregistrering? Du kan kontakte os på tlf. 89 40 41 60. Med venlig hilsen Aarhus Kommune."

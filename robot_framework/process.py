@@ -70,6 +70,7 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
 
     # Check status of people who are registered on last run against people who weren't registered before
     for row in queue_elements:
+        sms_list = []
         if not row.data:
             continue
         last_registration = json.loads(row.data)
@@ -94,6 +95,7 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
                 )
                 if current_registration.nemsms:
                     send_sms(kombit_access, current_registration.cpr)
+                    sms_list.append(current_registration.cpr)
             current_status.pop(row.reference)
         else:
             orchestrator_connection.delete_queue_element(row.id)
@@ -112,11 +114,12 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
         # If citizen is registered with NemSMS, send them an SMS
         if current_registration.nemsms:
             send_sms(kombit_access, current_registration.cpr)
+            sms_list.append(current_registration.cpr)
 
     # Send an email with list of people whose status has changed
     if len(changes) > 0:
         return_sheet = write_data_to_output_excel(changes)
-        _send_status_email(process_arguments["data_recipient"].split(";"), return_sheet)
+        _send_status_email(process_arguments["data_recipient"].split(";"), return_sheet, sms_list)
 
 
 def send_sms(kombit_access: KombitAccess, recipient: str):
@@ -182,17 +185,22 @@ def encrypt_data(cpr: str, first_name: str) -> str:
     return hash_obj.hexdigest()
 
 
-def _send_status_email(recipient: str, file: BytesIO):
+def _send_status_email(recipient: str, file: BytesIO, sms_list: list[str]):
     """ Send an email to the requesting party and to the controller.
 
     Args:
         email: The email that has been processed.
     """
+    body = config.EMAIL_BODY
+    if len(sms_list) > 0:
+        body = body.replace('{SMS_SENT}', f"I alt: {len(sms_list)}\n{'\n'.join(sms_list)}")
+    else:
+        body = body.replace('{SMS_SENT}', 'Ingen.')
     smtp_util.send_email(
         recipient,
         config.EMAIL_STATUS_SENDER,
         config.EMAIL_SUBJECT,
-        config.EMAIL_BODY,
+        body,
         config.SMTP_SERVER,
         config.SMTP_PORT,
         False,
