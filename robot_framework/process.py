@@ -18,6 +18,7 @@ from python_serviceplatformen import digital_post
 from python_serviceplatformen.authentication import KombitAccess
 from python_serviceplatformen.models import message as serviceplatform_message
 from python_serviceplatformen.models.message import Sender, Recipient
+import itk_dev_event_log
 
 from robot_framework import config
 
@@ -40,6 +41,9 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
     """ Do the primary process of the robot."""
     orchestrator_connection.log_trace("Running process.")
     process_arguments = json.loads(orchestrator_connection.process_arguments)
+
+    event_log = orchestrator_connection.get_constant("Event Log")
+    itk_dev_event_log.setup_logging(event_log.value)
 
     # Access Keyvault
     vault_auth = orchestrator_connection.get_credential(config.KEYVAULT_CREDENTIALS)
@@ -116,6 +120,8 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
             send_sms(kombit_access, current_registration.cpr)
             sms_list.append(current_registration.cpr)
 
+    itk_dev_event_log.emit(orchestrator_connection.process_name, "Sent SMS", len(sms_list))
+    itk_dev_event_log.emit(orchestrator_connection.process_name, "Notified of changes", len(changes))
     # Send an email with list of people whose status has changed
     if len(changes) > 0:
         return_sheet = write_data_to_output_excel(changes)
