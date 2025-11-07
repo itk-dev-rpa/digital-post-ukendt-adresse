@@ -275,5 +275,5 @@ if __name__ == '__main__':
     crypto_key = os.getenv("OpenOrchestratorKey")
     mail = input("Please enter your email to receive a test response:\n")
     PROCESS_VARIABLES = f'{{"service_cvr": "55133018", "data_recipient": "{mail}"}}'
-    oc = OrchestratorConnection("Udtræk Tilmelding Digital Post", conn_string, crypto_key, PROCESS_VARIABLES)
+    oc = OrchestratorConnection("Udtræk Tilmelding Digital Post", conn_string, crypto_key, PROCESS_VARIABLES, "TestTrigger")
     process(oc)
