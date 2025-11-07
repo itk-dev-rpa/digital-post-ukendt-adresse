@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Event logging for SMS sent and changes found.
 
+### Changed
+- Bumped OpenOrchestrator to 2.*
+
 ## [1.4.0] - 19-06-2025
 
 ### Added
