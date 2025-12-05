@@ -233,7 +233,7 @@ def get_registration_status_from_query(
     Raises:
         pyodbc.Error: If database connection or query execution fails
     """
-    query = "SELECT TOP 25 * FROM [DWH].[Mart].[AdresseAktuel] WHERE Vejkode = 9901 AND Myndighed = 751"
+    query = "SELECT * FROM [DWH].[Mart].[AdresseAktuel] WHERE Vejkode = 9901 AND Myndighed = 751"
     connection = pyodbc.connect(sql_connection)
     cursor = connection.cursor()
     cursor.execute(query)
