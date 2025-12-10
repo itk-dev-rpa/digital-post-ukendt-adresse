@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 05-12-2025
+
+### Fixed
+
+- SQL statement only fetched top 25 citizens. Now it gets everyone.
+
+## [1.5.0] - 03-10-2025
+
+### Added
+
+- Event logging for SMS sent and changes found.
+
 ## [1.4.0] - 19-06-2025
 
 ### Added
