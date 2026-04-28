@@ -268,12 +268,3 @@ def get_registration_status_from_query(
         except HTTPError as e:
             orchestrator_connection.log_error(f"Failed to fetch registration status for CPR {row.CPR}: {e.response.text}")
     return status_dict
-
-
-if __name__ == '__main__':
-    conn_string = os.getenv("OpenOrchestratorConnString")
-    crypto_key = os.getenv("OpenOrchestratorKey")
-    mail = input("Please enter your email to receive a test response:\n")
-    PROCESS_VARIABLES = f'{{"service_cvr": "55133018", "data_recipient": "{mail}"}}'
-    oc = OrchestratorConnection("Udtræk Tilmelding Digital Post", conn_string, crypto_key, PROCESS_VARIABLES, "", "")
-    process(oc)
