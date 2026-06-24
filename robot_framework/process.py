@@ -1,6 +1,5 @@
 """This module contains the main process of the robot."""
 
-import os
 import json
 from io import BytesIO
 from typing import List, Tuple
@@ -233,7 +232,7 @@ def get_registration_status_from_query(
     Raises:
         pyodbc.Error: If database connection or query execution fails
     """
-    query = "SELECT TOP 25 * FROM [DWH].[Mart].[AdresseAktuel] WHERE Vejkode = 9901 AND Myndighed = 751"
+    query = "SELECT * FROM [DWH].[Mart].[AdresseAktuel] WHERE Vejkode = 9901 AND Myndighed = 751"
     connection = pyodbc.connect(sql_connection)
     cursor = connection.cursor()
     cursor.execute(query)
@@ -268,12 +267,3 @@ def get_registration_status_from_query(
         except HTTPError as e:
             orchestrator_connection.log_error(f"Failed to fetch registration status for CPR {row.CPR}: {e.response.text}")
     return status_dict
-
-
-if __name__ == '__main__':
-    conn_string = os.getenv("OpenOrchestratorConnString")
-    crypto_key = os.getenv("OpenOrchestratorKey")
-    mail = input("Please enter your email to receive a test response:\n")
-    PROCESS_VARIABLES = f'{{"service_cvr": "55133018", "data_recipient": "{mail}"}}'
-    oc = OrchestratorConnection("Udtræk Tilmelding Digital Post", conn_string, crypto_key, PROCESS_VARIABLES, "TestTrigger")
-    process(oc)
